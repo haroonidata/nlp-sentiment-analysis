@@ -9,7 +9,8 @@ from evaluate import evaluate_model
 import mlflow
 import mlflow.sklearn
 from sklearn.metrics import f1_score
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import cross_val_score
+import joblib
 
 mlflow.set_tracking_uri("sqlite:///../mlflow.db")
 mlflow.set_experiment("sentiment-analysis")
@@ -82,16 +83,6 @@ print(metrics)
 #     .sort_values("weight")
 #     .head(20)
 # )
-with mlflow.start_run(run_name="logistic_regression_bigrams"):
-    mlflow.log_param("vectorizer", "tfidf")
-    mlflow.log_param("model", "logistic_regression")
-    mlflow.log_param("stop_words",None)
-    mlflow.log_param("max_features", 10000)
-
-    mlflow.log_metric("accuracy", metrics["accuracy"])
-    mlflow.log_metric("precision", metrics["precision"])
-    mlflow.log_metric("recall", metrics["recall"])
-    mlflow.log_metric("f1", metrics["f1"])
 
 
 train_predictions = model.predict(X_train)
@@ -106,7 +97,54 @@ print(
     f1_score(y_test, predictions)
 )
 
-import joblib
 
 joblib.dump(model, "../models/sentiment_model.pkl")
 joblib.dump(vectorizer, "../models/tfidf_vectorizer.pkl")
+print(vectorizer)
+
+cv_scores = cross_val_score(
+    model,
+    X,
+    y,
+    cv=5,
+    scoring="f1"
+)
+
+print("Cross Validation F1 Scores:")
+print(cv_scores)
+
+print(
+    "Average CV F1:",
+    cv_scores.mean()
+)
+
+results_df = pd.DataFrame({
+    "review": df.loc[y_test.index, "review"],
+    "actual": y_test,
+    "predicted": predictions
+})
+
+errors = results_df[
+    results_df["actual"] != results_df["predicted"]
+]
+
+print(errors.head(20))
+train_f1 = f1_score(y_train, train_predictions)
+test_f1 = f1_score(y_test, predictions)
+print("Train F1:", train_f1)
+print("Test F1:", test_f1)
+with mlflow.start_run(run_name="logistic_regression_bigrams"):
+    mlflow.log_param("vectorizer", "tfidf")
+    mlflow.log_param("model", "logistic_regression")
+    mlflow.log_param("stop_words",None)
+    mlflow.log_param("max_features", 10000)
+
+    mlflow.log_metric("accuracy", metrics["accuracy"])
+    mlflow.log_metric("precision", metrics["precision"])
+    mlflow.log_metric("recall", metrics["recall"])
+    mlflow.log_metric("f1", metrics["f1"])
+
+    mlflow.log_param("ngram_range", "(1,2)")
+    mlflow.log_metric("train_f1", train_f1)
+    mlflow.log_metric("test_f1", test_f1)
+    mlflow.log_metric("cv_mean_f1", cv_scores.mean())
