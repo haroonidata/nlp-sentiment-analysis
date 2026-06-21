@@ -6,7 +6,13 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from evaluate import evaluate_model
+import mlflow
+import mlflow.sklearn
+from sklearn.metrics import f1_score
+from sklearn.naive_bayes import MultinomialNB
 
+mlflow.set_tracking_uri("sqlite:///../mlflow.db")
+mlflow.set_experiment("sentiment-analysis")
 df = pd.read_csv("../data/imdb_reviews.csv")
 
 df["clean_review"] = df["review"].apply(clean_text)
@@ -22,8 +28,10 @@ df["label"] = df["sentiment"].map({
 })
 
 vectorizer = TfidfVectorizer(
-    stop_words="english",
-    max_features=10000
+    stop_words=None,
+    max_features=10000,
+    ngram_range=(1,2)
+
 )
 
 X = vectorizer.fit_transform(df["clean_review"])
@@ -45,30 +53,60 @@ model = LogisticRegression(
     max_iter=1000
 )
 
+# model = MultinomialNB()
+
 model.fit(X_train, y_train)
 
 predictions = model.predict(X_test)
 metrics = evaluate_model(y_test, predictions)
+print(metrics)
+# feature_names = vectorizer.get_feature_names_out()
 
-feature_names = vectorizer.get_feature_names_out()
+# weights_df = pd.DataFrame({
+#     "word": feature_names,
+#     "weight": model.coef_[0]
+# })
 
-weights_df = pd.DataFrame({
-    "word": feature_names,
-    "weight": model.coef_[0]
-})
+# print("\nTop Positive Words:")
 
-print("\nTop Positive Words:")
+# print(
+#     weights_df
+#     .sort_values("weight", ascending=False)
+#     .head(20)
+# )
+
+# print("\nTop Negative Words:")
+
+# print(
+#     weights_df
+#     .sort_values("weight")
+#     .head(20)
+# )
+with mlflow.start_run(run_name="logistic_regression_bigrams"):
+    mlflow.log_param("vectorizer", "tfidf")
+    mlflow.log_param("model", "logistic_regression")
+    mlflow.log_param("stop_words",None)
+    mlflow.log_param("max_features", 10000)
+
+    mlflow.log_metric("accuracy", metrics["accuracy"])
+    mlflow.log_metric("precision", metrics["precision"])
+    mlflow.log_metric("recall", metrics["recall"])
+    mlflow.log_metric("f1", metrics["f1"])
+
+
+train_predictions = model.predict(X_train)
 
 print(
-    weights_df
-    .sort_values("weight", ascending=False)
-    .head(20)
+    "Train F1:",
+    f1_score(y_train, train_predictions)
 )
-
-print("\nTop Negative Words:")
 
 print(
-    weights_df
-    .sort_values("weight")
-    .head(20)
+    "Test F1:",
+    f1_score(y_test, predictions)
 )
+
+import joblib
+
+joblib.dump(model, "../models/sentiment_model.pkl")
+joblib.dump(vectorizer, "../models/tfidf_vectorizer.pkl")
